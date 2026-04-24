@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "web-rpa"
+version = "0.1.0"
+description = "Python CLI Web RPA MVP using Playwright"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "playwright>=1.43",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+]
+
+[project.scripts]
+web-rpa = "web_rpa.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+  "pending: planned robustness or E2E coverage not enabled in the default environment",
+  "browser: tests that require a real Playwright browser",
+]

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>CRM Fixture</title>
+  </head>
+  <body>
+    <main>
+      <form id="login-form">
+        <label>用户名 <input name="username" data-testid="username"></label>
+        <label>密码 <input name="password" type="password" data-testid="password"></label>
+        <button type="submit" data-testid="login">登录</button>
+      </form>
+      <section id="dashboard" hidden>
+        <h1>客户</h1>
+        <label>客户名称 <input name="customer" placeholder="请输入客户名称"></label>
+        <button data-testid="create-customer">创建客户</button>
+        <button>保存</button>
+        <button>保存</button>
+        <p id="slow-result" hidden>慢接口完成</p>
+      </section>
+    </main>
+    <script>
+      document.querySelector("#login-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        history.pushState({}, "", "#/dashboard");
+        document.querySelector("#dashboard").hidden = false;
+      });
+      document.querySelector("[data-testid='create-customer']").addEventListener("click", () => {
+        setTimeout(() => {
+          document.querySelector("#slow-result").hidden = false;
+        }, 50);
+      });
+    </script>
+  </body>
+</html>
