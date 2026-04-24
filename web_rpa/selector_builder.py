@@ -94,7 +94,7 @@ def candidate_key(candidate: dict[str, Any]) -> str:
 
 
 def fingerprint(descriptor: dict[str, Any]) -> dict[str, Any]:
-    keys = ("tag", "role", "text", "id", "name", "type", "placeholder", "title", "alt", "href", "labels", "bbox")
+    keys = ("tag", "role", "text", "id", "name", "type", "className", "placeholder", "title", "alt", "href", "labels", "bbox")
     return {key: descriptor.get(key) for key in keys if descriptor.get(key) not in (None, "", [])}
 
 

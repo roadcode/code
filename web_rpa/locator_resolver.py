@@ -125,12 +125,14 @@ class LocatorResolver:
         raw = [target.get("primary"), *(target.get("candidates") or [])]
         fingerprint = target.get("fingerprint") or {}
         href = fingerprint.get("href")
-        if href:
+        if is_meaningful_href(href):
             raw.insert(0, {"kind": "css", "value": f'a[href={css_string(href)}]'})
         seen: set[tuple] = set()
         ordered: list[dict[str, Any]] = []
         for candidate in raw:
             if not candidate:
+                continue
+            if is_generic_href_candidate(candidate):
                 continue
             key = tuple(sorted(candidate.items()))
             if key not in seen:
@@ -213,3 +215,15 @@ class LocatorResolver:
 
 def css_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def is_meaningful_href(href: str | None) -> bool:
+    value = (href or "").strip().lower()
+    return bool(value and value != "#" and not value.startswith("javascript:"))
+
+
+def is_generic_href_candidate(candidate: dict[str, Any]) -> bool:
+    if candidate.get("kind") != "css":
+        return False
+    value = (candidate.get("value") or "").replace("'", '"').lower()
+    return 'href="#"' in value or "href=\"javascript:" in value

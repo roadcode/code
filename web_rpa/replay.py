@@ -63,6 +63,12 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
                 report.add_step(step_result(step, "skipped", start, reason="new page already handled by opener"))
                 index += 1
                 continue
+            if is_non_action_overlay_click(step):
+                wait_for_overlay_to_clear(current_page, step)
+                wait_for_next_target_available(current_page, steps, index + 1)
+                report.add_step(step_result(step, "skipped", start, reason="non-action overlay click"))
+                index += 1
+                continue
             signature = submit_click_signature(step)
             if signature is not None and signature == last_submit_click_signature:
                 report.add_step(step_result(step, "skipped", start, reason="duplicate submit click"))
@@ -89,7 +95,7 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
             index += 1
         except Exception as exc:
             result = step_result(step, "failed", start)
-            result.update(error_payload(exc, page))
+            result.update(error_payload(exc, current_page))
             if isinstance(exc, WebRpaError) and exc.details.get("tried"):
                 result["locator_tried"] = exc.details["tried"]
             result["step"] = step
@@ -115,6 +121,32 @@ def run_action_expecting_popup(page: Any, action_callable: Any, new_page_step: d
     state = wait.get("state", "domcontentloaded")
     popup.wait_for_load_state(state, timeout=timeout)
     return popup
+
+
+def wait_for_overlay_to_clear(page: Any, step: dict[str, Any]) -> None:
+    target = step.get("target") or {}
+    locator_spec = target.get("primary") or next(iter(target.get("candidates") or []), None)
+    if not locator_spec:
+        return
+    locator = LocatorResolver(page).materialize(locator_spec)
+    try:
+        locator.wait_for(state="detached", timeout=30000)
+    except Exception:
+        try:
+            locator.wait_for(state="hidden", timeout=30000)
+        except Exception:
+            pass
+
+
+def wait_for_next_target_available(page: Any, steps: list[dict[str, Any]], start_index: int) -> None:
+    for step in steps[start_index:]:
+        target = step.get("target")
+        if target:
+            try:
+                LocatorResolver(page, timeout_ms=30000).resolve(target)
+            except Exception:
+                pass
+            return
 
 
 def build_action(page: Any, resolver: LocatorResolver, step: dict[str, Any]):
@@ -146,6 +178,25 @@ def is_select_target(target: dict[str, Any]) -> bool:
     candidates = target.get("candidates") or []
     locators = [primary, *candidates]
     return any("select" in (locator.get("value") or "").lower() for locator in locators if locator.get("kind") == "css")
+
+
+def is_non_action_overlay_click(step: dict[str, Any]) -> bool:
+    if step.get("type") != "click":
+        return False
+    fingerprint = (step.get("target") or {}).get("fingerprint") or {}
+    tag = (fingerprint.get("tag") or "").lower()
+    text = (fingerprint.get("text") or "").strip()
+    if tag != "div" or text:
+        return False
+    class_name = (fingerprint.get("className") or "").lower()
+    looks_like_mask = any(token in class_name for token in ("mask", "overlay", "backdrop", "modal", "loading"))
+    bbox = fingerprint.get("bbox") or {}
+    x = float(bbox.get("x") or 0)
+    y = float(bbox.get("y") or 0)
+    width = float(bbox.get("w") or bbox.get("width") or 0)
+    height = float(bbox.get("h") or bbox.get("height") or 0)
+    covers_large_viewport = x <= 2 and y <= 2 and width >= 1000 and height >= 600
+    return looks_like_mask or covers_large_viewport
 
 
 def submit_click_signature(step: dict[str, Any]) -> tuple | None:

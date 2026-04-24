@@ -2,7 +2,7 @@ import pytest
 
 from web_rpa.errors import SelectorNotFound
 from web_rpa.report import RunReport
-from web_rpa.replay import build_action, execute_steps, is_select_target, submit_click_signature
+from web_rpa.replay import build_action, execute_steps, is_non_action_overlay_click, is_select_target, submit_click_signature
 
 
 class FakeLocator:
@@ -15,6 +15,9 @@ class FakeLocator:
 
     def is_visible(self):
         return True
+
+    def wait_for(self, state="visible", timeout=30000):
+        self.calls.append(("wait_for", state, timeout))
 
     def click(self):
         self.calls.append(("click",))
@@ -163,6 +166,29 @@ def test_is_select_target_detects_select_fingerprint_or_css():
     assert is_select_target({"fingerprint": {"tag": "select"}})
     assert is_select_target({"fingerprint": {}, "primary": {"kind": "css", "value": "select[name=\"status\"]"}})
     assert not is_select_target({"fingerprint": {"tag": "input"}, "primary": {"kind": "css", "value": "input[name=\"status\"]"}})
+
+
+def test_non_action_overlay_click_is_skipped(tmp_path):
+    page = FakePage()
+    report = RunReport(flow="flow.json", report_out=tmp_path / "report.json")
+    overlay_step = {
+        "id": "s1",
+        "type": "click",
+        "target": {
+            "primary": {"kind": "css", "value": "div[id=\"ext-gen52\"]"},
+            "candidates": [],
+            "fingerprint": {"tag": "div", "id": "ext-gen52", "bbox": {"x": 0, "y": 0, "w": 1280, "h": 720}},
+        },
+        "wait_after": {"kind": "none"},
+    }
+
+    execute_steps(page, [overlay_step], report)
+
+    assert is_non_action_overlay_click(overlay_step)
+    assert report.steps[0]["status"] == "skipped"
+    assert report.steps[0]["reason"] == "non-action overlay click"
+    assert page.locator_instance.calls == [("wait_for", "detached", 30000)]
+    assert page.calls == [("locator", 'div[id="ext-gen52"]')]
 
 
 def submit_step(step_id):

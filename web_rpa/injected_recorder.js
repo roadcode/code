@@ -82,6 +82,7 @@
       name: element.getAttribute("name"),
       type: element.getAttribute("type"),
       role: element.getAttribute("role"),
+      className: typeof element.className === "string" ? element.className : "",
       ariaLabel: element.getAttribute("aria-label"),
       ariaLabelledby: element.getAttribute("aria-labelledby"),
       placeholder: element.getAttribute("placeholder"),
@@ -196,13 +197,27 @@
 
   function emit(type, element, extra = {}) {
     if (!element || typeof window.__rpa_record !== "function") return;
+    const data = descriptor(element);
+    if (type === "click" && isNonActionOverlay(data)) return;
     window.__rpa_record({
       type,
       ts: Date.now() / 1000,
       url: location.href,
-      descriptor: descriptor(element),
+      descriptor: data,
       ...extra
     });
+  }
+
+  function isNonActionOverlay(data) {
+    const tag = (data.tag || "").toLowerCase();
+    const text = normalizeSpace(data.text);
+    const className = String(data.className || "").toLowerCase();
+    const box = data.bbox || {};
+    const viewportArea = Math.max(window.innerWidth * window.innerHeight, 1);
+    const elementArea = Math.max((box.w || 0) * (box.h || 0), 0);
+    const coversViewport = (box.x || 0) <= 2 && (box.y || 0) <= 2 && elementArea >= viewportArea * 0.85;
+    const looksLikeMask = /(mask|overlay|backdrop|modal|loading)/.test(className);
+    return tag === "div" && !text && (coversViewport || looksLikeMask);
   }
 
   document.addEventListener("click", (event) => {

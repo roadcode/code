@@ -103,6 +103,39 @@ def test_href_fingerprint_candidate_beats_broad_text_and_xpath():
     assert result.candidate == {"kind": "css", "value": f'a[href="{href}"]'}
 
 
+def test_hash_href_fingerprint_does_not_beat_specific_primary():
+    page = FakePage(
+        {
+            "ul#menu > li:nth-child(4) > div > a": FakeLocator(1),
+            'a[href="#"]': FakeLocator(10),
+        }
+    )
+
+    result = LocatorResolver(page, timeout_ms=0).resolve(
+        {
+            "primary": {"kind": "css", "value": "ul#menu > li:nth-child(4) > div > a"},
+            "candidates": [{"kind": "css", "value": 'a[href="#"]'}],
+            "fingerprint": {"href": "#", "text": "Provisioning"},
+        }
+    )
+
+    assert result.candidate == {"kind": "css", "value": "ul#menu > li:nth-child(4) > div > a"}
+
+
+def test_explicit_hash_href_candidate_is_ignored_as_generic():
+    page = FakePage({"missing": FakeLocator(0), "Provisioning": FakeLocator(1), 'a[href="#"]': FakeLocator(1)})
+
+    result = LocatorResolver(page, timeout_ms=0).resolve(
+        {
+            "primary": {"kind": "css", "value": "missing"},
+            "candidates": [{"kind": "css", "value": 'a[href="#"]'}, {"kind": "text", "value": "Provisioning"}],
+            "fingerprint": {"href": "#", "text": "Provisioning"},
+        }
+    )
+
+    assert result.candidate == {"kind": "text", "value": "Provisioning"}
+
+
 def test_bbox_fingerprint_narrows_ambiguous_css_candidate():
     page = FakePage(
         {
