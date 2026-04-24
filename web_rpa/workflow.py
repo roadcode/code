@@ -49,6 +49,13 @@ class WorkflowBuilder:
         event_type = event.get("type")
         descriptor = event.get("descriptor") or {}
         target = build_target(descriptor) if descriptor else None
+        if event_type == "new_page":
+            return FlowStep(
+                id=self.next_id(),
+                type="new_page",
+                url=event.get("url") or self.initial_url,
+                wait={"kind": "page", "state": "domcontentloaded"},
+            ).to_dict()
         if event_type == "click":
             return self.action_step("click", target, event)
         if event_type == "fill":

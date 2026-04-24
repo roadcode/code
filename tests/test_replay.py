@@ -35,9 +35,11 @@ class FakeResolver:
 
 
 class FakePage:
-    def __init__(self):
+    def __init__(self, name="page"):
+        self.name = name
         self.calls = []
         self.locator_instance = FakeLocator()
+        self.context = None
 
     def goto(self, url, wait_until="domcontentloaded"):
         self.calls.append(("goto", url, wait_until))
@@ -45,6 +47,17 @@ class FakePage:
     def locator(self, value):
         self.calls.append(("locator", value))
         return self.locator_instance
+
+
+class FakeContext:
+    def __init__(self):
+        self.pages = []
+
+    def new_page(self):
+        page = FakePage(name=f"page{len(self.pages) + 1}")
+        page.context = self
+        self.pages.append(page)
+        return page
 
 
 def test_build_action_for_all_step_types():
@@ -67,6 +80,40 @@ def test_build_action_for_all_step_types():
         ("select_option", "yes"),
         ("press", "Enter"),
     ]
+
+
+def test_new_page_action_opens_and_returns_page():
+    context = FakeContext()
+    page = FakePage("initial")
+    page.context = context
+
+    result = build_action(page, FakeResolver(FakeLocator()), {"type": "new_page", "url": "http://example.test/details"})()
+
+    assert result is context.pages[0]
+    assert result.calls == [("goto", "http://example.test/details", "domcontentloaded")]
+
+
+def test_execute_steps_switches_to_new_page(tmp_path):
+    context = FakeContext()
+    page = FakePage("initial")
+    page.context = context
+    report = RunReport(flow="flow.json", report_out=tmp_path / "report.json")
+    steps = [
+        {"id": "s1", "type": "new_page", "url": "http://example.test/details", "wait_after": {"kind": "none"}},
+        {
+            "id": "s2",
+            "type": "fill",
+            "value": "alice",
+            "target": {"primary": {"kind": "css", "value": "input[name=\"user\"]"}, "candidates": [], "fingerprint": {}},
+            "wait_after": {"kind": "none"},
+        },
+    ]
+
+    execute_steps(page, steps, report)
+
+    assert [step["status"] for step in report.steps] == ["passed", "passed"]
+    assert page.locator_instance.calls == []
+    assert context.pages[0].locator_instance.calls == [("fill", "alice")]
 
 
 def test_change_on_text_input_uses_fill_not_select_option():

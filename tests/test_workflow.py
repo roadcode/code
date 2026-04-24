@@ -61,3 +61,13 @@ def test_enter_press_is_recorded():
     builder.add_event({"type": "press", "key": "Enter", "ts": 1.0, "url": "http://example.test", "descriptor": descriptor()})
 
     assert builder.to_flow()["steps"][1]["type"] == "press"
+
+
+def test_new_page_event_is_recorded_as_page_step():
+    builder = WorkflowBuilder(name="tabs", initial_url="http://example.test")
+    builder.add_event({"type": "new_page", "ts": 1.0, "url": "http://example.test/details"})
+
+    step = builder.to_flow()["steps"][1]
+    assert step["type"] == "new_page"
+    assert step["url"] == "http://example.test/details"
+    assert "target" not in step

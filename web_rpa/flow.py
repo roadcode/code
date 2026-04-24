@@ -11,7 +11,7 @@ from .errors import InvalidFlow, MissingVariable
 
 
 FLOW_VERSION = "0.1"
-SUPPORTED_STEPS = {"goto", "click", "fill", "select", "change", "press"}
+SUPPORTED_STEPS = {"goto", "new_page", "click", "fill", "select", "change", "press"}
 SUPPORTED_WAITS = {"none", "page", "response", "url", "locator_visible", "locator_hidden", "composite"}
 SUPPORTED_LOCATORS = {"test_id", "role", "label", "placeholder", "title", "alt", "text", "css", "xpath"}
 VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -152,9 +152,9 @@ def validate_step(step: dict[str, Any], index: int) -> None:
     step_type = step.get("type")
     if not step.get("id") or step_type not in SUPPORTED_STEPS:
         raise InvalidFlow(f"step {index} 缺少 id 或包含不支持的 type")
-    if step_type == "goto" and not step.get("url"):
-        raise InvalidFlow(f"goto step {index} 缺少 url")
-    if step_type != "goto":
+    if step_type in {"goto", "new_page"} and not step.get("url"):
+        raise InvalidFlow(f"{step_type} step {index} 缺少 url")
+    if step_type not in {"goto", "new_page"}:
         validate_target(step.get("target"), index)
     if step_type in {"fill", "select", "change"} and "value" not in step:
         raise InvalidFlow(f"{step_type} step {index} 缺少 value")

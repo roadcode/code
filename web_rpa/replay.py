@@ -50,7 +50,8 @@ def run_flow(args: Any) -> RunReport:
 
 
 def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> None:
-    resolver = LocatorResolver(page)
+    current_page = page
+    resolver = LocatorResolver(current_page)
     wait_manager = WaitManager()
     last_submit_click_signature: tuple | None = None
     index = 0
@@ -63,13 +64,16 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
                 report.add_step(step_result(step, "skipped", start, reason="duplicate submit click"))
                 index += 1
                 continue
-            action = build_action(page, resolver, step)
-            wait_manager.run_action_with_waits(page, step, action)
+            action = build_action(current_page, resolver, step)
+            result = wait_manager.run_action_with_waits(current_page, step, action)
+            if step.get("type") == "new_page" and result is not None:
+                current_page = result
+                resolver = LocatorResolver(current_page)
             report.add_step(step_result(step, "passed", start))
             last_submit_click_signature = signature
             index += 1
         except Exception as exc:
-            resume_index = find_resumable_step(page, steps, index + 1)
+            resume_index = find_resumable_step(current_page, steps, index + 1)
             if isinstance(exc, (SelectorNotFound, SelectorAmbiguous)) and resume_index is not None:
                 report.add_step(step_result(step, "skipped", start, reason="target unavailable; later step already available"))
                 for skipped in steps[index + 1 : resume_index]:
@@ -106,6 +110,13 @@ def build_action(page: Any, resolver: LocatorResolver, step: dict[str, Any]):
     step_type = step["type"]
     if step_type == "goto":
         return lambda: page.goto(step["url"], wait_until=(step.get("wait") or {}).get("state", "domcontentloaded"))
+    if step_type == "new_page":
+        def open_new_page():
+            new_page = page.context.new_page()
+            new_page.goto(step["url"], wait_until=(step.get("wait") or {}).get("state", "domcontentloaded"))
+            return new_page
+
+        return open_new_page
     if step_type == "click":
         return lambda: resolver.resolve(step["target"]).locator.click()
     if step_type == "fill":

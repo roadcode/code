@@ -42,3 +42,10 @@ def test_invalid_locator_kind_rejected():
 
     with pytest.raises(InvalidFlow):
         validate_flow(flow)
+
+
+def test_new_page_step_does_not_require_target():
+    flow = base_flow()
+    flow["steps"].append({"id": "s3", "type": "new_page", "url": "http://example.test/popup"})
+
+    validate_flow(flow)
