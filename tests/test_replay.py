@@ -156,7 +156,7 @@ def test_execute_steps_resumes_from_later_available_step(tmp_path):
     assert report.steps[0]["reason"] == "target unavailable; later step already available"
 
 
-def test_execute_steps_resumes_from_later_url_segment(tmp_path):
+def test_execute_steps_does_not_resume_from_later_url_segment_only(tmp_path):
     page = FakePage()
     page.url = "http://example.test/portal"
     report = RunReport(flow="flow.json", report_out=tmp_path / "report.json")
@@ -184,7 +184,9 @@ def test_execute_steps_resumes_from_later_url_segment(tmp_path):
     locators = {"missing": FakeLocator(count=0), "still-missing": FakeLocator(count=0), "ok": FakeLocator(count=1)}
     page.locator = lambda value: locators[value]
 
-    execute_steps(page, [stale, covered, later], report)
+    try:
+        execute_steps(page, [stale, covered, later], report)
+    except Exception:
+        pass
 
-    assert [step["status"] for step in report.steps] == ["skipped", "skipped", "passed"]
-    assert report.steps[1]["reason"] == "covered by later available step"
+    assert [step["status"] for step in report.steps] == ["failed"]

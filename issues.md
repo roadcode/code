@@ -76,3 +76,65 @@ python -m web_rpa run --flow flows/ows.json --report-out runs/ows/report.json
 - `s9-s11`: skipped，原因是 `duplicate submit click`
 - `s12-s15`: skipped，原因是会话已经进入后续应用，门户导航步骤过期
 - `s16`: passed
+
+## GitHub #2: Fix OWS replay result mismatch after successful run
+
+远程 issue: https://github.com/roadcode/code/issues/2
+
+### 问题现象
+
+上一轮修复后，`flows/ows.json` 的回放报告会显示 `passed`，但执行路径与录制时不一致：
+
+- `s12-s15` 是录制时的门户搜索路径：点击搜索输入框、输入 `告警`、选择 `告警查询`。
+- 实际回放时，由于登录后的门户会话已经恢复到后续应用状态，这些步骤被恢复逻辑跳过。
+- 最终报告显示成功，但关键录制步骤没有执行，导致“运行成功但结果与录制不一致”的假阳性。
+
+### 根因
+
+`find_resumable_step()` 的恢复逻辑过于激进：
+
+1. 当前 step selector 失败后，会扫描后续 step。
+2. 如果后续 step 目标可解析，或者后续 step 的 URL 与当前失败 step 不同，就把中间步骤标记为 skipped。
+3. 这让跨页面、跨应用的导航步骤被静默跳过。
+
+对 `ows.json` 来说，`s12-s15` 的门户搜索路径被 `s16` 覆盖，报告因此变成 `passed`，但这不是录制时的真实路径。
+
+### 解决办法
+
+- 恢复逻辑只允许在同一个录制 URL 内恢复。
+- 不再因为“后续 step URL 不同”而跳过当前失败步骤。
+- 恢复 `run` 的 headed/headless 行为，尊重 CLI 的 `--headed` 参数。
+- 增加回归测试，确保不能仅凭后续 URL 段不同就跳过当前失败步骤。
+
+### 当前验证结果
+
+单元测试：
+
+```bash
+python -m pytest
+```
+
+结果：
+
+```text
+35 passed, 1 skipped
+```
+
+真实 flow 回放：
+
+```bash
+python -m web_rpa run --flow flows/ows.json --report-out runs/ows/report.json
+```
+
+结果：命令返回非零，`runs/ows/report.json` 状态为 `failed`，失败在 `s12`。
+
+这说明“成功但结果与录制不一致”的假阳性已修复。当前剩余问题是录制时的门户搜索输入框在当前会话状态下不可用：
+
+- `s12` 的 `placeholder=请输入关键字` 当前为 `0 matches`。
+- `input[type="text"]` 在主页面和 frame 中均多匹配。
+- 报告会明确输出 selector 诊断，而不是跳过录制路径。
+
+### 后续建议
+
+- 对该 flow 重新录制当前门户状态下的真实路径，或在录制阶段增加更强的门户菜单上下文 selector。
+- 后续可以增加显式的“前置状态/当前应用”校验，避免登录后恢复到历史应用时继续套用旧门户导航路径。

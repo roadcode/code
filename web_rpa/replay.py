@@ -20,7 +20,7 @@ def run_flow(args: Any) -> RunReport:
     report = RunReport(flow=str(flow_path), report_out=report_out)
     flow = materialize_flow(read_flow(flow_path), load_vars(getattr(args, "vars", None)))
     with sync_playwright() as p:
-        browser = launch_replay_browser(p, headed=True, slow_mo=getattr(args, "slow_mo", 0))
+        browser = launch_replay_browser(p, headed=getattr(args, "headed", False), slow_mo=getattr(args, "slow_mo", 0))
         context = browser.new_context()
         trace_path = report_out.parent / "trace.zip"
         maybe_start_trace(context, getattr(args, "trace", False))
@@ -69,7 +69,7 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
             last_submit_click_signature = signature
             index += 1
         except Exception as exc:
-            resume_index = find_resumable_step(page, steps, index + 1, failed_step=step)
+            resume_index = find_resumable_step(page, steps, index + 1)
             if isinstance(exc, (SelectorNotFound, SelectorAmbiguous)) and resume_index is not None:
                 report.add_step(step_result(step, "skipped", start, reason="target unavailable; later step already available"))
                 for skipped in steps[index + 1 : resume_index]:
@@ -85,10 +85,13 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
             raise
 
 
-def find_resumable_step(page: Any, steps: list[dict[str, Any]], start_index: int, *, failed_step: dict[str, Any]) -> int | None:
+def find_resumable_step(page: Any, steps: list[dict[str, Any]], start_index: int) -> int | None:
     probe = LocatorResolver(page, timeout_ms=0)
+    failed_url = steps[start_index - 1].get("url") if start_index > 0 else None
     for index in range(start_index, len(steps)):
         step = steps[index]
+        if failed_url and step.get("url") != failed_url:
+            continue
         if step.get("type") == "goto" or not step.get("target"):
             continue
         try:
@@ -96,12 +99,6 @@ def find_resumable_step(page: Any, steps: list[dict[str, Any]], start_index: int
             return index
         except (SelectorNotFound, SelectorAmbiguous):
             continue
-    failed_url = failed_step.get("url")
-    if failed_url:
-        for index in range(start_index, len(steps)):
-            step_url = steps[index].get("url")
-            if step_url and step_url != failed_url:
-                return index
     return None
 
 
