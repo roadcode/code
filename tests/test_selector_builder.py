@@ -7,6 +7,25 @@ def test_test_id_is_primary():
     assert target["primary"] == {"kind": "test_id", "value": "save-button"}
 
 
+def test_unique_recorded_selector_becomes_primary_over_duplicate_text():
+    target = build_target(
+        {
+            "tag": "a",
+            "text": "Setting",
+            "href": "#",
+            "cssPath": "ul#menu > li:nth-child(2) > a",
+            "selectorCounts": {
+                "role:link:Setting": 3,
+                "text:Setting": 3,
+                "css:a[href=\"#\"]": 8,
+                "css:ul#menu > li:nth-child(2) > a": 1,
+            },
+        }
+    )
+
+    assert target["primary"] == {"kind": "css", "value": "ul#menu > li:nth-child(2) > a"}
+
+
 def test_role_label_and_xpath_priority():
     candidates = build_candidates(
         {

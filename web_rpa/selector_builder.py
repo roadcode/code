@@ -10,6 +10,7 @@ SHORT_TEXT_LIMIT = 80
 
 def build_target(descriptor: dict[str, Any]) -> dict[str, Any]:
     candidates = build_candidates(descriptor)
+    candidates = order_by_recorded_uniqueness(candidates, descriptor)
     primary = choose_primary(candidates)
     return {
         "primary": primary,
@@ -65,6 +66,31 @@ def choose_primary(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         if candidate["kind"] != "xpath":
             return candidate
     return candidates[0]
+
+
+def order_by_recorded_uniqueness(candidates: list[dict[str, Any]], descriptor: dict[str, Any]) -> list[dict[str, Any]]:
+    selector_counts = descriptor.get("selectorCounts") or {}
+    if not selector_counts:
+        return candidates
+    indexed = list(enumerate(candidates))
+    indexed.sort(key=lambda item: uniqueness_sort_key(item[0], item[1], selector_counts))
+    return [candidate for _, candidate in indexed]
+
+
+def uniqueness_sort_key(index: int, candidate: dict[str, Any], selector_counts: dict[str, int]) -> tuple[int, int]:
+    count = selector_counts.get(candidate_key(candidate))
+    if count == 1:
+        return (0, index)
+    if count is None:
+        return (1, index)
+    return (2, index)
+
+
+def candidate_key(candidate: dict[str, Any]) -> str:
+    kind = candidate.get("kind")
+    if kind == "role":
+        return f"role:{candidate.get('role', '')}:{candidate.get('name', '')}"
+    return f"{kind}:{candidate.get('value', '')}"
 
 
 def fingerprint(descriptor: dict[str, Any]) -> dict[str, Any]:
