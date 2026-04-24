@@ -71,6 +71,7 @@ class WorkflowBuilder:
         return FlowStep(
             id=self.next_id(),
             type=step_type,
+            url=after_url,
             target=target,
             wait_after=infer_wait_after(before_url, after_url, event.get("network_events") or []),
             network_events=event.get("network_events") or [],
@@ -83,7 +84,7 @@ class WorkflowBuilder:
             return False
         previous = self.steps[-1].get("target", {}).get("fingerprint")
         current = step.get("target", {}).get("fingerprint")
-        return previous == current and event.get("url") == event.get("url")
+        return previous == current and step.get("url") == self.steps[-1].get("url")
 
     def to_flow(self) -> dict[str, Any]:
         return {"version": FLOW_VERSION, "name": self.name, "steps": self.steps}

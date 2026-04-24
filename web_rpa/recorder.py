@@ -36,8 +36,7 @@ def record_flow(args: Any) -> dict[str, Any]:
             page.wait_for_event("close", timeout=0)
         except KeyboardInterrupt:
             pass
-        finally:
-            flow = builder.to_flow()
-            write_flow(out, flow)
-            context.close()
-            return flow
+        flow = builder.to_flow()
+        write_flow(out, flow)
+        context.close()
+        return flow

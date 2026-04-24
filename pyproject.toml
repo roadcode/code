@@ -20,6 +20,9 @@ test = [
 [project.scripts]
 web-rpa = "web_rpa.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["web_rpa*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
 from .errors import WaitTimeout
 from .locator_resolver import LocatorResolver
 
@@ -42,7 +44,7 @@ class WaitManager:
             return result
         except WaitTimeout:
             raise
-        except Exception as exc:
+        except PlaywrightTimeoutError as exc:
             raise WaitTimeout(f"等待失败：{kind}", details={"wait": wait, "error": str(exc)}) from exc
 
     def _run_composite(self, page: Any, wait: dict[str, Any]) -> None:

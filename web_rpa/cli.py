@@ -46,4 +46,4 @@ def main(argv: list[str] | None = None) -> int:
     except WebRpaError as exc:
         print(f"{exc.code}: {exc}", file=sys.stderr)
         return 2
-    return 1
+    parser.error(f"unsupported command: {args.command}")
