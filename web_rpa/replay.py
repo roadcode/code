@@ -7,7 +7,7 @@ from typing import Any
 from playwright.sync_api import sync_playwright
 
 from .browser import launch_replay_browser, maybe_start_trace, maybe_stop_trace
-from .errors import WebRpaError
+from .errors import SelectorAmbiguous, SelectorNotFound, WebRpaError
 from .flow import load_vars, materialize_flow, read_flow
 from .locator_resolver import LocatorResolver
 from .report import RunReport
@@ -20,7 +20,7 @@ def run_flow(args: Any) -> RunReport:
     report = RunReport(flow=str(flow_path), report_out=report_out)
     flow = materialize_flow(read_flow(flow_path), load_vars(getattr(args, "vars", None)))
     with sync_playwright() as p:
-        browser = launch_replay_browser(p, headed=getattr(args, "headed", False), slow_mo=getattr(args, "slow_mo", 0))
+        browser = launch_replay_browser(p, headed=True, slow_mo=getattr(args, "slow_mo", 0))
         context = browser.new_context()
         trace_path = report_out.parent / "trace.zip"
         maybe_start_trace(context, getattr(args, "trace", False))
@@ -52,13 +52,30 @@ def run_flow(args: Any) -> RunReport:
 def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> None:
     resolver = LocatorResolver(page)
     wait_manager = WaitManager()
-    for step in steps:
+    last_submit_click_signature: tuple | None = None
+    index = 0
+    while index < len(steps):
+        step = steps[index]
         start = time.perf_counter()
         try:
+            signature = submit_click_signature(step)
+            if signature is not None and signature == last_submit_click_signature:
+                report.add_step(step_result(step, "skipped", start, reason="duplicate submit click"))
+                index += 1
+                continue
             action = build_action(page, resolver, step)
             wait_manager.run_action_with_waits(page, step, action)
             report.add_step(step_result(step, "passed", start))
+            last_submit_click_signature = signature
+            index += 1
         except Exception as exc:
+            resume_index = find_resumable_step(page, steps, index + 1, failed_step=step)
+            if isinstance(exc, (SelectorNotFound, SelectorAmbiguous)) and resume_index is not None:
+                report.add_step(step_result(step, "skipped", start, reason="target unavailable; later step already available"))
+                for skipped in steps[index + 1 : resume_index]:
+                    report.add_step(step_result(skipped, "skipped", time.perf_counter(), reason="covered by later available step"))
+                index = resume_index
+                continue
             result = step_result(step, "failed", start)
             result.update(error_payload(exc, page))
             if isinstance(exc, WebRpaError) and exc.details.get("tried"):
@@ -66,6 +83,26 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
             result["step"] = step
             report.add_step(result)
             raise
+
+
+def find_resumable_step(page: Any, steps: list[dict[str, Any]], start_index: int, *, failed_step: dict[str, Any]) -> int | None:
+    probe = LocatorResolver(page, timeout_ms=0)
+    for index in range(start_index, len(steps)):
+        step = steps[index]
+        if step.get("type") == "goto" or not step.get("target"):
+            continue
+        try:
+            probe.resolve(step["target"])
+            return index
+        except (SelectorNotFound, SelectorAmbiguous):
+            continue
+    failed_url = failed_step.get("url")
+    if failed_url:
+        for index in range(start_index, len(steps)):
+            step_url = steps[index].get("url")
+            if step_url and step_url != failed_url:
+                return index
+    return None
 
 
 def build_action(page: Any, resolver: LocatorResolver, step: dict[str, Any]):
@@ -76,20 +113,58 @@ def build_action(page: Any, resolver: LocatorResolver, step: dict[str, Any]):
         return lambda: resolver.resolve(step["target"]).locator.click()
     if step_type == "fill":
         return lambda: resolver.resolve(step["target"]).locator.fill(step.get("value", ""))
-    if step_type in {"select", "change"}:
+    if step_type == "select":
         return lambda: resolver.resolve(step["target"]).locator.select_option(step.get("value", ""))
+    if step_type == "change":
+        if is_select_target(step.get("target") or {}):
+            return lambda: resolver.resolve(step["target"]).locator.select_option(step.get("value", ""))
+        return lambda: resolver.resolve(step["target"]).locator.fill(step.get("value", ""))
     if step_type == "press":
         return lambda: resolver.resolve(step["target"]).locator.press(step["key"])
     raise ValueError(f"unsupported step type {step_type}")
 
 
-def step_result(step: dict[str, Any], status: str, start: float) -> dict[str, Any]:
-    return {
+def is_select_target(target: dict[str, Any]) -> bool:
+    fingerprint = target.get("fingerprint") or {}
+    if (fingerprint.get("tag") or "").lower() == "select":
+        return True
+    primary = target.get("primary") or {}
+    candidates = target.get("candidates") or []
+    locators = [primary, *candidates]
+    return any("select" in (locator.get("value") or "").lower() for locator in locators if locator.get("kind") == "css")
+
+
+def submit_click_signature(step: dict[str, Any]) -> tuple | None:
+    if step.get("type") != "click":
+        return None
+    target = step.get("target") or {}
+    fingerprint = target.get("fingerprint") or {}
+    tag = (fingerprint.get("tag") or "").lower()
+    input_type = (fingerprint.get("type") or "").lower()
+    if input_type != "submit" and tag != "button":
+        return None
+    primary = target.get("primary") or {}
+    candidates = target.get("candidates") or []
+    return (
+        step.get("url"),
+        tag,
+        input_type,
+        fingerprint.get("id"),
+        fingerprint.get("name"),
+        tuple(tuple(sorted(locator.items())) for locator in [primary, *candidates]),
+    )
+
+
+def step_result(step: dict[str, Any], status: str, start: float, *, reason: str | None = None) -> dict[str, Any]:
+    result = {
         "id": step.get("id"),
         "type": step.get("type"),
         "status": status,
         "duration_ms": round((time.perf_counter() - start) * 1000),
     }
+    if reason:
+        result["reason"] = reason
+    return result
 
 
 def capture_failure_screenshot(page: Any, out_dir: Path, step_id: str) -> str | None:
