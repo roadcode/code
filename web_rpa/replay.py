@@ -59,18 +59,33 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
         step = steps[index]
         start = time.perf_counter()
         try:
+            if step.get("type") == "new_page":
+                report.add_step(step_result(step, "skipped", start, reason="new page already handled by opener"))
+                index += 1
+                continue
             signature = submit_click_signature(step)
             if signature is not None and signature == last_submit_click_signature:
                 report.add_step(step_result(step, "skipped", start, reason="duplicate submit click"))
                 index += 1
                 continue
             action = build_action(current_page, resolver, step)
-            result = wait_manager.run_action_with_waits(current_page, step, action)
-            if step.get("type") == "new_page" and result is not None:
+            new_page_step = next_new_page_step(steps, index)
+            if new_page_step:
+                result = wait_manager.run_action_with_waits(
+                    current_page,
+                    step,
+                    lambda: run_action_expecting_popup(current_page, action, new_page_step),
+                )
                 current_page = result
                 resolver = LocatorResolver(current_page)
+            else:
+                wait_manager.run_action_with_waits(current_page, step, action)
             report.add_step(step_result(step, "passed", start))
             last_submit_click_signature = signature
+            if new_page_step:
+                report.add_step(step_result(new_page_step, "passed", start))
+                index += 2
+                continue
             index += 1
         except Exception as exc:
             resume_index = find_resumable_step(current_page, steps, index + 1)
@@ -106,17 +121,32 @@ def find_resumable_step(page: Any, steps: list[dict[str, Any]], start_index: int
     return None
 
 
+def next_new_page_step(steps: list[dict[str, Any]], index: int) -> dict[str, Any] | None:
+    if index + 1 >= len(steps):
+        return None
+    candidate = steps[index + 1]
+    if candidate.get("type") == "new_page":
+        return candidate
+    return None
+
+
+def run_action_expecting_popup(page: Any, action_callable: Any, new_page_step: dict[str, Any]) -> Any:
+    wait = new_page_step.get("wait") or {}
+    timeout = wait.get("timeout", 30000)
+    with page.expect_popup(timeout=timeout) as popup_info:
+        action_callable()
+    popup = popup_info.value
+    state = wait.get("state", "domcontentloaded")
+    popup.wait_for_load_state(state, timeout=timeout)
+    return popup
+
+
 def build_action(page: Any, resolver: LocatorResolver, step: dict[str, Any]):
     step_type = step["type"]
     if step_type == "goto":
         return lambda: page.goto(step["url"], wait_until=(step.get("wait") or {}).get("state", "domcontentloaded"))
     if step_type == "new_page":
-        def open_new_page():
-            new_page = page.context.new_page()
-            new_page.goto(step["url"], wait_until=(step.get("wait") or {}).get("state", "domcontentloaded"))
-            return new_page
-
-        return open_new_page
+        return lambda: page
     if step_type == "click":
         return lambda: resolver.resolve(step["target"]).locator.click()
     if step_type == "fill":

@@ -44,9 +44,31 @@ class FakePage:
     def goto(self, url, wait_until="domcontentloaded"):
         self.calls.append(("goto", url, wait_until))
 
+    def wait_for_load_state(self, state, timeout=30000):
+        self.calls.append(("wait_for_load_state", state, timeout))
+
+    def expect_popup(self, timeout=30000):
+        return FakePopupInfo(self, timeout)
+
     def locator(self, value):
         self.calls.append(("locator", value))
         return self.locator_instance
+
+
+class FakePopupInfo:
+    def __init__(self, page, timeout):
+        self.page = page
+        self.timeout = timeout
+        self.value = None
+
+    def __enter__(self):
+        self.page.calls.append(("expect_popup", self.timeout))
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if exc_type is None:
+            self.value = self.page.context.new_page()
+        return False
 
 
 class FakeContext:
@@ -82,15 +104,13 @@ def test_build_action_for_all_step_types():
     ]
 
 
-def test_new_page_action_opens_and_returns_page():
-    context = FakeContext()
+def test_new_page_action_is_only_a_switch_marker():
     page = FakePage("initial")
-    page.context = context
 
     result = build_action(page, FakeResolver(FakeLocator()), {"type": "new_page", "url": "http://example.test/details"})()
 
-    assert result is context.pages[0]
-    assert result.calls == [("goto", "http://example.test/details", "domcontentloaded")]
+    assert result is page
+    assert page.calls == []
 
 
 def test_execute_steps_switches_to_new_page(tmp_path):
@@ -99,9 +119,15 @@ def test_execute_steps_switches_to_new_page(tmp_path):
     page.context = context
     report = RunReport(flow="flow.json", report_out=tmp_path / "report.json")
     steps = [
-        {"id": "s1", "type": "new_page", "url": "http://example.test/details", "wait_after": {"kind": "none"}},
         {
-            "id": "s2",
+            "id": "s1",
+            "type": "click",
+            "target": {"primary": {"kind": "css", "value": "a[target=\"_blank\"]"}, "candidates": [], "fingerprint": {}},
+            "wait_after": {"kind": "none"},
+        },
+        {"id": "s2", "type": "new_page", "url": "http://example.test/details", "wait_after": {"kind": "none"}},
+        {
+            "id": "s3",
             "type": "fill",
             "value": "alice",
             "target": {"primary": {"kind": "css", "value": "input[name=\"user\"]"}, "candidates": [], "fingerprint": {}},
@@ -111,8 +137,9 @@ def test_execute_steps_switches_to_new_page(tmp_path):
 
     execute_steps(page, steps, report)
 
-    assert [step["status"] for step in report.steps] == ["passed", "passed"]
-    assert page.locator_instance.calls == []
+    assert [step["status"] for step in report.steps] == ["passed", "passed", "passed"]
+    assert page.locator_instance.calls == [("click",)]
+    assert context.pages[0].calls == [("wait_for_load_state", "domcontentloaded", 30000), ("locator", 'input[name="user"]')]
     assert context.pages[0].locator_instance.calls == [("fill", "alice")]
 
 
