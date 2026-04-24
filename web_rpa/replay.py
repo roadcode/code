@@ -7,7 +7,7 @@ from typing import Any
 from playwright.sync_api import sync_playwright
 
 from .browser import launch_replay_browser, maybe_start_trace, maybe_stop_trace
-from .errors import SelectorAmbiguous, SelectorNotFound, WebRpaError
+from .errors import WebRpaError
 from .flow import load_vars, materialize_flow, read_flow
 from .locator_resolver import LocatorResolver
 from .report import RunReport
@@ -88,13 +88,6 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
                 continue
             index += 1
         except Exception as exc:
-            resume_index = find_resumable_step(current_page, steps, index + 1)
-            if isinstance(exc, (SelectorNotFound, SelectorAmbiguous)) and resume_index is not None:
-                report.add_step(step_result(step, "skipped", start, reason="target unavailable; later step already available"))
-                for skipped in steps[index + 1 : resume_index]:
-                    report.add_step(step_result(skipped, "skipped", time.perf_counter(), reason="covered by later available step"))
-                index = resume_index
-                continue
             result = step_result(step, "failed", start)
             result.update(error_payload(exc, page))
             if isinstance(exc, WebRpaError) and exc.details.get("tried"):
@@ -102,23 +95,6 @@ def execute_steps(page: Any, steps: list[dict[str, Any]], report: RunReport) -> 
             result["step"] = step
             report.add_step(result)
             raise
-
-
-def find_resumable_step(page: Any, steps: list[dict[str, Any]], start_index: int) -> int | None:
-    probe = LocatorResolver(page, timeout_ms=0)
-    failed_url = steps[start_index - 1].get("url") if start_index > 0 else None
-    for index in range(start_index, len(steps)):
-        step = steps[index]
-        if failed_url and step.get("url") != failed_url:
-            continue
-        if step.get("type") == "goto" or not step.get("target"):
-            continue
-        try:
-            probe.resolve(step["target"])
-            return index
-        except (SelectorNotFound, SelectorAmbiguous):
-            continue
-    return None
 
 
 def next_new_page_step(steps: list[dict[str, Any]], index: int) -> dict[str, Any] | None:

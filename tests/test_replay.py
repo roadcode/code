@@ -1,3 +1,6 @@
+import pytest
+
+from web_rpa.errors import SelectorNotFound
 from web_rpa.report import RunReport
 from web_rpa.replay import build_action, execute_steps, is_select_target, submit_click_signature
 
@@ -193,7 +196,7 @@ def test_execute_steps_skips_consecutive_duplicate_submit_clicks(tmp_path):
     assert report.steps[1]["reason"] == "duplicate submit click"
 
 
-def test_execute_steps_resumes_from_later_available_step(tmp_path):
+def test_execute_steps_fails_instead_of_skipping_to_later_available_step(tmp_path):
     page = FakePage()
     page.url = "http://example.test/app"
     report = RunReport(flow="flow.json", report_out=tmp_path / "report.json")
@@ -224,10 +227,11 @@ def test_execute_steps_resumes_from_later_available_step(tmp_path):
 
     page.locator = locator
 
-    execute_steps(page, [stale, available], report)
+    with pytest.raises(SelectorNotFound):
+        execute_steps(page, [stale, available], report)
 
-    assert [step["status"] for step in report.steps] == ["skipped", "passed"]
-    assert report.steps[0]["reason"] == "target unavailable; later step already available"
+    assert [step["status"] for step in report.steps] == ["failed"]
+    assert report.steps[0]["id"] == "s1"
 
 
 def test_execute_steps_does_not_resume_from_later_url_segment_only(tmp_path):
@@ -258,9 +262,7 @@ def test_execute_steps_does_not_resume_from_later_url_segment_only(tmp_path):
     locators = {"missing": FakeLocator(count=0), "still-missing": FakeLocator(count=0), "ok": FakeLocator(count=1)}
     page.locator = lambda value: locators[value]
 
-    try:
+    with pytest.raises(SelectorNotFound):
         execute_steps(page, [stale, covered, later], report)
-    except Exception:
-        pass
 
     assert [step["status"] for step in report.steps] == ["failed"]
